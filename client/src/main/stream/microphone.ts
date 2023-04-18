@@ -10,8 +10,20 @@ declare var __static: string;
 type MicrophoneInput = {
   id: number;
   name: string;
-  selected: boolean;
+  selected?: boolean;
+  defaultSampleRate?: number;
 };
+
+type SpeechRecorderDevice = {
+  id: number,
+  name: string,
+  apiName: string,
+  maxInputChannels: number,
+  maxOutputChannels: number,
+  defaultSampleRate: number,
+  isDefaultInput: boolean,
+  isDefaultOutput: boolean
+}
 
 export default class Microphone {
   private callbacks: { [key: string]: (message: any) => void } = {};
@@ -44,16 +56,25 @@ export default class Microphone {
 
     this.running = true;
     this.volumeWhileSpeakingBuffer = [];
+
+
+    const microphoneId = this.settings.getMicrophone().id;
+    const selectedMicrophone = this.microphones().find(mic => mic.id === microphoneId);
+
     this.recorder = new SpeechRecorder({
-      device: this.settings.getMicrophone().id,
+      device: microphoneId,
+      sampleRate: selectedMicrophone?.defaultSampleRate || 16000,
+
       sileroVadSilenceThreshold: this.settings.getChunkSilenceThreshold(),
       sileroVadSpeechThreshold: this.settings.getChunkSpeechThreshold(),
+
       onChunkStart: ({ audio }: { audio: any }) => {
         this.volumeWhileSpeakingBuffer = [];
         for (const callback of Object.values(this.callbacks)) {
           callback({ event: "chunk_start", audio });
         }
       },
+
       onAudio: async ({
         audio,
         consecutiveSilence,
@@ -98,6 +119,7 @@ export default class Microphone {
           callback({ event: "audio", audio, volume, speaking, consecutiveSilence });
         }
       },
+
       onChunkEnd: () => {
         for (const callback of Object.values(this.callbacks)) {
           callback({ event: "chunk_end" });
@@ -118,13 +140,30 @@ export default class Microphone {
     }
   }
 
-  microphones(): MicrophoneInput[] {
-    const inputs = devices().filter((e: any) => e.maxInputChannels > 0);
-    return [Microphone.systemDefaultMicrophone].concat(inputs).map((e: any) => ({
-      id: e.id,
-      name: e.name,
-      selected: e.id == this.settings.getMicrophone().id,
-    }));
+microphones(): MicrophoneInput[] {
+    const inputs: [SpeechRecorderDevice] = devices().filter((e: any) => e.maxInputChannels > 0);
+    const defaultInputDevice = inputs.find(i => i.isDefaultInput);
+
+    // very important to include the sample rate here
+      // the speech processor does not handle default sample rates of devices
+      // It defaults to 16000hz for each device, if it's not supported, the program will crash
+    const microphones : [MicrophoneInput] = [{
+      id: Microphone.systemDefaultMicrophone.id,
+      name: Microphone.systemDefaultMicrophone.name,
+      defaultSampleRate: defaultInputDevice?.defaultSampleRate,
+      selected: Microphone.systemDefaultMicrophone.id == this.settings.getMicrophone().id,
+    }];
+
+    inputs.forEach(e => {
+      microphones.push({
+        id: e.id,
+        name: e.name,
+        defaultSampleRate: e.defaultSampleRate,
+        selected: e.id == this.settings.getMicrophone().id,
+      })
+    });
+
+    return microphones;
   }
 
   register(name: string, callback: (data: any) => void) {
