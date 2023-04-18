@@ -115,12 +115,16 @@ export default class Local {
     return os.platform() == "darwin" && semver.lt(os.release(), "20.0.0");
   }
 
-  async requiresWsl() {
+  async  requiresWsl() {
     return os.platform() == "win32" && !(await commandExists("wsl.exe"));
   }
 
   async start() {
-    if (this.started || (await this.requiresWsl())) {
+    if (this.started) {
+      this.log.logError("Local already started");
+      return;
+    } else if ((await this.requiresWsl())) {
+      this.log.logError("WSL is required to run Serenade locally on Windows");
       return;
     }
 
